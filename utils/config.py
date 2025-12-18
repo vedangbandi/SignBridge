@@ -5,12 +5,30 @@ import os
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATASET_DIR = os.path.join(BASE_DIR, "dataset")
+_dataset_dir = os.path.join(BASE_DIR, "dataset")
+
+def set_dataset_dir(path):
+    global _dataset_dir
+    _dataset_dir = path
+    os.makedirs(_dataset_dir, exist_ok=True)
+
+@property
+def DATASET_DIR():
+    return _dataset_dir
+
+# Use a standard variable for compatibility
+DATASET_DIR = _dataset_dir # This will be the initial value
 DATASET_PATH = DATASET_DIR  # Alias for consistency
+
+def update_dataset_path(new_path):
+    global DATASET_DIR, DATASET_PATH
+    DATASET_DIR = new_path
+    DATASET_PATH = new_path
+    os.makedirs(DATASET_DIR, exist_ok=True)
+
+# Ensure initial directories exist
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
-
-# Ensure directories exist
 os.makedirs(DATASET_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)

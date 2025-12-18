@@ -4,7 +4,7 @@ Dataset Browser Tab - GUI for browsing and managing dataset
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QGroupBox, QMessageBox, QInputDialog, QListWidgetItem,
-    QSplitter, QFrame, QScrollArea, QSlider, QSizePolicy
+    QSplitter, QFrame, QScrollArea, QSlider, QSizePolicy, QFileDialog
 )
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
@@ -12,7 +12,7 @@ import os
 import numpy as np
 from core.label_manager import LabelManager
 from utils.file_ops import get_sequence_count, delete_sequence, get_label_path
-from utils.config import DATASET_PATH, KEYPOINTS_PER_FRAME, HAND_CONNECTIONS
+import utils.config as config
 from utils.logger import app_logger
 
 
@@ -49,7 +49,7 @@ class HandVisualizer(QLabel):
         if self.keypoints is None:
             return
             
-        if len(self.keypoints) != 63:
+        if len(self.keypoints) != config.KEYPOINTS_PER_FRAME:
             return
             
         # Draw text if viewing keypoints
@@ -103,8 +103,8 @@ class HandVisualizer(QLabel):
             if x==0 and y==0: return None
             return int(x * draw_w) + offset_x, int(y * draw_h) + offset_y
 
-        if HAND_CONNECTIONS:
-            for start, end in HAND_CONNECTIONS:
+        if config.HAND_CONNECTIONS:
+            for start, end in config.HAND_CONNECTIONS:
                 p1 = get_pt(start)
                 p2 = get_pt(end)
                 if p1 and p2:
@@ -134,10 +134,30 @@ class BrowserTab(QWidget):
     
     def init_ui(self):
         """Initialize UI components."""
+        # Top-level vertical layout
+        top_layout = QVBoxLayout()
+        top_layout.setSpacing(10)
+        top_layout.setContentsMargins(10, 10, 10, 10)
+
+        # --- Dataset Selector Bar ---
+        selector_bar = QHBoxLayout()
+        self.dataset_path_label = QLabel(f"<b>Current Dataset:</b> {config.DATASET_PATH}")
+        self.dataset_path_label.setStyleSheet("color: #7F8C8D; font-size: 11px;")
+        
+        self.browse_btn = QPushButton("📂 Browse Dataset")
+        self.browse_btn.setFixedSize(150, 30)
+        self.browse_btn.setStyleSheet("background-color: #3498DB; color: white; font-weight: bold; border-radius: 4px;")
+        self.browse_btn.clicked.connect(self.browse_dataset)
+        
+        selector_bar.addWidget(self.dataset_path_label)
+        selector_bar.addStretch()
+        selector_bar.addWidget(self.browse_btn)
+        top_layout.addLayout(selector_bar)
+
         # Main Horizontal Layout for 3 Columns
         main_layout = QHBoxLayout()
         main_layout.setSpacing(2) # Near zero spacing between columns
-        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         
         # --- Column 1: Labels ---
         col1 = QGroupBox("1. Select Class")
@@ -243,8 +263,31 @@ class BrowserTab(QWidget):
         # Add columns with new ratios
         # col1 and col2 added above
         main_layout.addWidget(col3, 1) # Takes remaining space
+        top_layout.addLayout(main_layout)
         
-        self.setLayout(main_layout)
+        self.setLayout(top_layout)
+
+    def browse_dataset(self):
+        """Open dialog to browse for a new dataset directory."""
+        dir_path = QFileDialog.getExistingDirectory(
+            self, "Select Dataset Directory", config.DATASET_PATH
+        )
+        
+        if dir_path:
+            config.update_dataset_path(dir_path)
+            self.dataset_path_label.setText(f"<b>Current Dataset:</b> {dir_path}")
+            app_logger.info(f"Updated dataset path to: {dir_path}")
+            
+            # Refresh everything
+            self.label_manager.refresh()
+            self.refresh_labels()
+            self.current_label = None
+            self.sequence_list.clear()
+            self.visualizer.clear_visual()
+            self.image_label.setText("Select a sequence")
+            self.image_label.setPixmap(QPixmap())
+            
+            QMessageBox.information(self, "Dataset Updated", f"Loaded dataset from:\n{dir_path}")
 
 
     def refresh_labels(self):
