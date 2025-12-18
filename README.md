@@ -141,5 +141,3 @@ Sign-Language-Recognition-System/
 - **App freezes?** The app uses threading for heavy tasks, but initial model loading might take a few seconds.
 
 ---
-
-**Original Code Refactored by Google DeepMind Agent**
