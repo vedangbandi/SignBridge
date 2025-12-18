@@ -36,25 +36,16 @@ env/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# TensorFlow/Keras
-*.h5
-*.hdf5
-Logs/
+# Application Data
 logs/
+*.log
+model/model.h5
+model/model.json
+legacy/
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
+# Dataset (uncomment to exclude dataset from git)
+# dataset/
 
 # Temporary files
 *.tmp
-tempCodeRunnerFile.py
 temp/
-
-# Model files (uncomment if you don't want to track models)
-# model.h5
-# model.json
-
-# Dataset (uncomment if dataset is too large for GitHub)
-# MP_Data/
