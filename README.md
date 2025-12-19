@@ -56,7 +56,7 @@
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/vedangbandi/SignBridge.git
    cd Sign-Language-Recognition-System
    ```
 
