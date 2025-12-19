@@ -9,7 +9,6 @@
 
 **A unified, professional GUI application for dataset creation, training, and real-time sign language recognition.**
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Project Structure](#-project-structure)
 
 </div>
 
