@@ -101,13 +101,7 @@ class DatasetManager:
     
     def load_all_data(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str]]:
         """
-        Load all dataset for training.
-        
-        Returns:
-            Tuple of (X, y, labels) where:
-                X: numpy array of shape (num_samples, sequence_length, keypoints_per_frame)
-                y: numpy array of label indices
-                labels: list of label names
+        Load all dataset for training using parallel processing for speed.
         """
         self.refresh_labels()
         
@@ -115,22 +109,41 @@ class DatasetManager:
             app_logger.warning("No labels found in dataset")
             return None, None, []
         
+        from concurrent.futures import ThreadPoolExecutor
+        import time
+        
+        start_time = time.time()
         sequences = []
         label_indices = []
         
         # Create label to index mapping
         label_to_idx = {label: idx for idx, label in enumerate(self.labels)}
         
-        # Load all sequences
-        for label in self.labels:
+        def load_label_data(label):
+            """Helper to load all sequences for a single label."""
             num_sequences = get_sequence_count(label)
-            app_logger.info(f"Loading {num_sequences} sequences for label '{label}'")
+            local_sequences = []
+            local_indices = []
             
             for seq_idx in range(num_sequences):
                 sequence = load_sequence(label, seq_idx, SEQUENCE_LENGTH)
                 if sequence is not None:
-                    sequences.append(sequence)
-                    label_indices.append(label_to_idx[label])
+                    local_sequences.append(sequence)
+                    local_indices.append(label_to_idx[label])
+            return local_sequences, local_indices
+
+        app_logger.info(f"Starting parallel load for {len(self.labels)} labels...")
+        
+        # Use ThreadPoolExecutor for I/O bound tasks (loading files)
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(load_label_data, self.labels))
+            
+        # Combine results
+        for local_seqs, local_idxs in results:
+            sequences.extend(local_seqs)
+            label_indices.extend(local_idxs)
+        
+        load_duration = time.time() - start_time
         
         if not sequences:
             app_logger.warning("No sequences loaded")
@@ -139,7 +152,7 @@ class DatasetManager:
         X = np.array(sequences)
         y = np.array(label_indices)
         
-        app_logger.info(f"Loaded dataset: X shape {X.shape}, y shape {y.shape}")
+        app_logger.info(f"Loaded dataset in {load_duration:.2f}s: X shape {X.shape}, y shape {y.shape}")
         return X, y, self.labels
     
     def validate_dataset(self) -> Tuple[bool, str]:

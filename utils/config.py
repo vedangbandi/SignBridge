@@ -36,6 +36,7 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 # Model settings
 DEFAULT_MODEL_PATH = os.path.join(MODEL_DIR, "model.h5")
 MODEL_JSON_PATH = os.path.join(MODEL_DIR, "model.json")
+DEFAULT_LABELS_PATH = os.path.join(MODEL_DIR, "labels.txt")
 
 # Training defaults
 DEFAULT_EPOCHS = 50
@@ -66,7 +67,7 @@ HAND_CONNECTIONS = [
 
 # Prediction settings
 PREDICTION_CONFIDENCE_THRESHOLD = 0.8
-PREDICTION_CONSISTENCY_FRAMES = 10
+PREDICTION_CONSISTENCY_FRAMES = 3
 
 # UI settings
 WINDOW_TITLE = "SignBridge: Bridging Sign Language and Trainable Hand Gestures"

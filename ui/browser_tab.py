@@ -4,14 +4,17 @@ Dataset Browser Tab - GUI for browsing and managing dataset
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QGroupBox, QMessageBox, QInputDialog, QListWidgetItem,
-    QSplitter, QFrame, QScrollArea, QSlider, QSizePolicy, QFileDialog
+    QSplitter, QFrame, QScrollArea, QSlider, QSizePolicy, QFileDialog,
+    QProgressDialog
 )
-from PyQt5.QtCore import Qt, QTimer, QSize
+from PyQt5.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
 import os
+import cv2
 import numpy as np
 from core.label_manager import LabelManager
-from utils.file_ops import get_sequence_count, delete_sequence, get_label_path
+from core.image_capture import ImageCapture
+from utils.file_ops import get_sequence_count, delete_sequence, get_label_path, load_sequence, save_sequence
 import utils.config as config
 from utils.logger import app_logger
 
@@ -116,6 +119,112 @@ class HandVisualizer(QLabel):
             painter.drawPoint(px, py)
 
 
+class RepairDatasetWorker(QThread):
+    """Worker thread to generate missing keypoint data from images in the dataset."""
+    progress = pyqtSignal(int, int, str) # current, total, label
+    finished = pyqtSignal(int, int) # added, total_checked
+
+    def __init__(self, dataset_path):
+        super().__init__()
+        self.dataset_path = dataset_path
+        self.processor = ImageCapture()
+        # Initialize hands without starting camera
+        import mediapipe as mp
+        self.processor.hands = mp.solutions.hands.Hands(
+            static_image_mode=True,
+            max_num_hands=1,
+            min_detection_confidence=0.5
+        )
+
+    def run(self):
+        added_count = 0
+        total_checked = 0
+        
+        labels = [d for d in os.listdir(self.dataset_path) 
+                  if os.path.isdir(os.path.join(self.dataset_path, d))]
+        
+        # 1. AUTO-IMPORT: Find loose images in label folders
+        self.progress.emit(0, 100, "Scanning for loose images...")
+        for label in labels:
+            label_dir = os.path.join(self.dataset_path, label)
+            loose_images = [f for f in os.listdir(label_dir) 
+                           if f.lower().endswith(('.jpg', '.png', '.jpeg')) 
+                           and os.path.isfile(os.path.join(label_dir, f))]
+            
+            if loose_images:
+                # Calculate next sequence index
+                existing_dirs = [d for d in os.listdir(label_dir) if os.path.isdir(os.path.join(label_dir, d))]
+                indices = []
+                for d in existing_dirs:
+                    try: indices.append(int(d))
+                    except: pass
+                next_idx = max(indices) + 1 if indices else 0
+                
+                for img_name in loose_images:
+                    self.progress.emit(0, 0, f"Importing {label}/{img_name}...")
+                    old_path = os.path.join(label_dir, img_name)
+                    
+                    # Read and process
+                    frame = cv2.imread(old_path)
+                    if frame is not None:
+                        # Extract landmarks
+                        results = self.processor.hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                        kp = self.processor.extract_keypoints(results)
+                        
+                        # Save sequence
+                        save_sequence(label, next_idx, [kp for _ in range(config.SEQUENCE_LENGTH)])
+                        
+                        # Move image to its new home (sequence_dir/preview.jpg)
+                        # This auto-cleans the label folder
+                        new_seq_dir = os.path.join(label_dir, str(next_idx))
+                        os.makedirs(new_seq_dir, exist_ok=True)
+                        
+                        # Rename/move file instead of copying to keep it clean
+                        target_img_path = os.path.join(new_seq_dir, "preview.jpg")
+                        try:
+                            # Re-save as preview.jpg to ensure consistency
+                            cv2.imwrite(target_img_path, frame)
+                            os.remove(old_path)
+                            added_count += 1
+                            next_idx += 1
+                        except: pass
+
+        # 2. REPAIR: Check existing sequences for missing landmarks
+        all_sequences = []
+        for label in labels:
+            label_dir = os.path.join(self.dataset_path, label)
+            seqs = [d for d in os.listdir(label_dir) if os.path.isdir(os.path.join(label_dir, d))]
+            for s in seqs:
+                all_sequences.append((label, s))
+        
+        total_total = len(all_sequences)
+        
+        for i, (label, seq_idx) in enumerate(all_sequences):
+            seq_path = os.path.join(self.dataset_path, label, seq_idx)
+            kp_path = os.path.join(seq_path, "keypoints.npy")
+            
+            self.progress.emit(i + 1, total_total, f"Repairing {label}/{seq_idx}...")
+            total_checked += 1
+            
+            if not os.path.exists(kp_path):
+                # Try to find images to process
+                img_path = os.path.join(seq_path, "preview.jpg")
+                if not os.path.exists(img_path):
+                    imgs = [f for f in os.listdir(seq_path) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+                    if imgs: img_path = os.path.join(seq_path, imgs[0])
+                
+                if os.path.exists(img_path):
+                    frame = cv2.imread(img_path)
+                    if frame is not None:
+                        results = self.processor.hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                        kp = self.processor.extract_keypoints(results)
+                        save_sequence(label, int(seq_idx), [kp for _ in range(config.SEQUENCE_LENGTH)])
+                        added_count += 1
+        
+        self.finished.emit(added_count, total_checked)
+        self.processor.stop_capture()
+
+
 class BrowserTab(QWidget):
     """Dataset browser tab for managing labels and sequences."""
     
@@ -144,6 +253,12 @@ class BrowserTab(QWidget):
         self.dataset_path_label = QLabel(f"<b>Current Dataset:</b> {config.DATASET_PATH}")
         self.dataset_path_label.setStyleSheet("color: #7F8C8D; font-size: 11px;")
         
+        self.sync_btn = QPushButton("🔄 Sync & Repair")
+        self.sync_btn.setFixedSize(130, 30)
+        self.sync_btn.setToolTip("Generate missing .npy data from images in the dataset folder")
+        self.sync_btn.setStyleSheet("background-color: #27AE60; color: white; border-radius: 4px;")
+        self.sync_btn.clicked.connect(self.repair_dataset)
+
         self.browse_btn = QPushButton("📂 Browse Dataset")
         self.browse_btn.setFixedSize(150, 30)
         self.browse_btn.setStyleSheet("background-color: #3498DB; color: white; font-weight: bold; border-radius: 4px;")
@@ -151,6 +266,7 @@ class BrowserTab(QWidget):
         
         selector_bar.addWidget(self.dataset_path_label)
         selector_bar.addStretch()
+        selector_bar.addWidget(self.sync_btn)
         selector_bar.addWidget(self.browse_btn)
         top_layout.addLayout(selector_bar)
 
@@ -289,6 +405,39 @@ class BrowserTab(QWidget):
             
             QMessageBox.information(self, "Dataset Updated", f"Loaded dataset from:\n{dir_path}")
 
+    def repair_dataset(self):
+        """Find images without .npy files and generate them."""
+        self.progress_dialog = QProgressDialog("Scanning dataset...", "Cancel", 0, 100, self)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setWindowTitle("Dataset Sync")
+        self.progress_dialog.show()
+
+        self.repair_worker = RepairDatasetWorker(config.DATASET_PATH)
+        self.repair_worker.progress.connect(self.on_repair_progress)
+        self.repair_worker.finished.connect(self.on_repair_finished)
+        self.repair_worker.start()
+
+    def on_repair_progress(self, current, total, text):
+        self.progress_dialog.setMaximum(total)
+        self.progress_dialog.setValue(current)
+        self.progress_dialog.setLabelText(f"Processing: {text}")
+        if self.progress_dialog.wasCanceled():
+            self.repair_worker.terminate()
+
+    def on_repair_finished(self, added, checked):
+        self.progress_dialog.close()
+        self.refresh_labels()
+        if added > 0:
+            QMessageBox.information(self, "Sync Complete", 
+                                    f"Successfully repaired the dataset!\n\n"
+                                    f"• Generated landmarks for {added} sequences.\n"
+                                    f"• Scanned {checked} total sequences.")
+        else:
+            QMessageBox.information(self, "Sync Complete", 
+                                    f"Dataset is already in sync!\n\n"
+                                    f"All {checked} sequences have valid landmark data.")
+
 
     def refresh_labels(self):
         """Refresh labels list."""
@@ -370,29 +519,26 @@ class BrowserTab(QWidget):
             self.image_label.setPixmap(QPixmap()) # Clear
 
         # 2. Load Keypoints
-        frames = []
-        files = sorted([f for f in os.listdir(sequence_path) if f.endswith('.npy')], 
-                      key=lambda x: int(os.path.splitext(x)[0]))
-        for f in files:
-            try:
-                data = np.load(os.path.join(sequence_path, f))
-                frames.append(data)
-            except: pass
+        frames = load_sequence(self.current_label, seq_idx, config.SEQUENCE_LENGTH)
             
-        self.current_sequence_frames = frames
+        self.current_sequence_frames = frames if frames is not None else []
         self.current_frame_idx = 0
         
-        if frames:
+        if len(self.current_sequence_frames) > 0:
             self.update_visual()
+            self.frame_slider.setMaximum(len(self.current_sequence_frames) - 1)
+            self.frame_slider.setValue(0)
         else:
-            self.visualizer.setText("No Keypoint Data")
+            self.visualizer.clear_visual()
+            self.frame_slider.setMaximum(0)
             
         self.is_playing = False
-        self.play_btn.setText("Play Animation")
+        self.play_btn.setText("▶ Play")
 
     def update_visual(self):
         """Update the visualizer with current keypoint frame."""
-        if not self.current_sequence_frames: return
+        if self.current_sequence_frames is None or len(self.current_sequence_frames) == 0:
+            return
             
         if 0 <= self.current_frame_idx < len(self.current_sequence_frames):
             data = self.current_sequence_frames[self.current_frame_idx]
@@ -422,7 +568,7 @@ class BrowserTab(QWidget):
             self.anim_timer.stop()
             self.play_btn.setText("▶ Play")
         else:
-            if not self.current_sequence_frames: # Changed from self.keypoints to self.current_sequence_frames
+            if self.current_sequence_frames is None or len(self.current_sequence_frames) == 0:
                 return
             
             # Restart if at end

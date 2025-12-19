@@ -9,7 +9,8 @@ from utils.config import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_LEARNING_RATE,
     DEFAULT_VALIDATION_SPLIT,
-    DEFAULT_MODEL_PATH
+    DEFAULT_MODEL_PATH,
+    DEFAULT_LABELS_PATH
 )
 from utils.logger import training_logger
 
@@ -112,6 +113,18 @@ class Trainer:
             # Create callback
             callback = TrainingCallback(progress_callback)
             
+            # Calculate class weights to handle imbalanced datasets (e.g., too many 'OK' samples)
+            from sklearn.utils.class_weight import compute_class_weight
+            
+            y_integers = np.argmax(y_train, axis=1)
+            class_weights = compute_class_weight(
+                class_weight='balanced',
+                classes=np.unique(y_integers),
+                y=y_integers
+            )
+            class_weight_dict = dict(enumerate(class_weights))
+            training_logger.info(f"Calculated class weights: {class_weight_dict}")
+
             # Train model
             training_logger.info(f"Starting training: {epochs} epochs, batch size {batch_size}")
             self.training_history = self.model.fit(
@@ -120,6 +133,7 @@ class Trainer:
                 epochs=epochs,
                 batch_size=batch_size,
                 callbacks=[callback],
+                class_weight=class_weight_dict,
                 verbose=1
             )
             
@@ -135,20 +149,23 @@ class Trainer:
             self.is_training = False
             return False
     
-    def save_model(self, model_path: str = DEFAULT_MODEL_PATH) -> bool:
+    def save_model(self, model_path: str = DEFAULT_MODEL_PATH, labels_path: str = DEFAULT_LABELS_PATH) -> bool:
         """
-        Save trained model.
-        
-        Args:
-            model_path: Path to save model
-            
-        Returns:
-            True if successful, False otherwise
+        Save trained model and its labels.
         """
         if self.model is None:
             training_logger.warning("No model to save")
             return False
         
+        # Save labels
+        try:
+            with open(labels_path, 'w') as f:
+                f.write('\n'.join(self.labels))
+            training_logger.info(f"Labels saved to {labels_path}")
+        except Exception as e:
+            training_logger.error(f"Error saving labels: {e}")
+            return False
+            
         return ModelBuilder.save_model(self.model, model_path)
     
     def get_training_history(self) -> Optional[dict]:

@@ -30,6 +30,10 @@ class PredictTab(QWidget):
         # Timer for prediction
         self.predict_timer = QTimer()
         self.predict_timer.timeout.connect(self.update_prediction)
+        
+        # Performance optimization: skip inference frames
+        self.frame_counter = 0
+        self.inference_skip_frames = 1 # Predict every 2nd frame (landmark detection remains smooth)
     
     def init_ui(self):
         """Initialize UI components."""
@@ -169,46 +173,32 @@ class PredictTab(QWidget):
         self.correct_predictions = {}
     
     def load_model(self):
-        """Load trained model."""
-        # Try default model first
-        labels = self.dataset_manager.get_labels()
-        
-        if not labels:
-            QMessageBox.warning(
-                self,
-                "No Labels",
-                "No labels found in dataset. Please create and train a model first."
-            )
-            return
-        
-        # Check if default model exists
+        """Load trained model and its correct label mapping."""
+        # Use config paths
         import os
-        if os.path.exists(DEFAULT_MODEL_PATH):
-            model_path = DEFAULT_MODEL_PATH
-        else:
-            # Ask user to select model
-            model_path, _ = QFileDialog.getOpenFileName(
-                self,
-                "Select Model File",
-                "",
-                "Model Files (*.h5)"
-            )
-            
-            if not model_path:
-                return
+        model_path = DEFAULT_MODEL_PATH
         
-        # Load model
-        if self.predictor.load_model(model_path, labels):
+        if not os.path.exists(model_path):
+            # Ask user if default not found
+            model_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Model File", "", "Model Files (*.h5)"
+            )
+            if not model_path: return
+        
+        # Load model environment (Predictor now handles labels.txt internal lookup)
+        if self.predictor.load_model(model_path):
             self.model_label.setText(f"Model loaded: {os.path.basename(model_path)}")
             self.model_label.setStyleSheet("color: #27AE60;")
             self.start_btn.setEnabled(True)
-            QMessageBox.information(
-                self,
-                "Success",
-                f"Model loaded successfully!\nRecognizes {len(labels)} gestures: {', '.join(labels)}"
-            )
+            
+            labels = self.predictor.labels
+            msg = f"Model loaded successfully!\nRecognizes {len(labels)} gestures."
+            if labels:
+                msg += f"\nGestures: {', '.join(labels[:10])}{'...' if len(labels)>10 else ''}"
+            
+            QMessageBox.information(self, "Success", msg)
         else:
-            QMessageBox.critical(self, "Error", "Failed to load model")
+            QMessageBox.critical(self, "Error", "Failed to load model or label mapping")
     
     def toggle_prediction(self):
         """Toggle prediction on/off."""
@@ -273,9 +263,21 @@ class PredictTab(QWidget):
         # Extract keypoints
         keypoints = self.capture.extract_keypoints(results)
         
-        # Make prediction
-        threshold = self.threshold_slider.value() / 100.0
-        predicted_label, confidence = self.predictor.predict(keypoints, threshold)
+        # Performance optimization: AI Inference Decimation
+        predicted_label = None
+        confidence = 0.0
+        
+        # Always add keypoints to buffer for temporal continuity
+        if self.frame_counter % (self.inference_skip_frames + 1) == 0:
+            threshold = self.threshold_slider.value() / 100.0
+            predicted_label, confidence = self.predictor.predict(keypoints, threshold)
+        else:
+            # Just push keypoints without predicting to keep buffer fresh
+            self.predictor.add_keypoints(keypoints)
+            # Retain current stable prediction for display
+            predicted_label, confidence = self.predictor.get_current_prediction()
+
+        self.frame_counter += 1
         
         # Draw landmarks
         processed_frame = self.capture.draw_landmarks(processed_frame, results)

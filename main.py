@@ -21,14 +21,14 @@ from utils.logger import app_logger
 def main():
     """Main application entry point."""
     try:
+        # Enable high DPI scaling (must be set before QApplication)
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+        
         # Create application
         app = QApplication(sys.argv)
         app.setApplicationName("SignBridge")
         app.setOrganizationName("SLR Team")
-        
-        # Enable high DPI scaling
-        app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-        app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
         
         # Create and show main window
         window = MainWindow()

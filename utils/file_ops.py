@@ -193,23 +193,16 @@ def load_json(filepath: str) -> Optional[dict]:
 
 def save_sequence(label: str, sequence_idx: int, keypoints_sequence: List[np.ndarray]) -> bool:
     """
-    Save a sequence of keypoints.
-    
-    Args:
-        label: Label name
-        sequence_idx: Sequence index
-        keypoints_sequence: List of keypoint arrays
-        
-    Returns:
-        True if saved successfully, False otherwise
+    Save a sequence of keypoints as a single numpy file for efficiency.
     """
     try:
         sequence_path = os.path.join(get_label_path(label), str(sequence_idx))
         os.makedirs(sequence_path, exist_ok=True)
         
-        for frame_idx, keypoints in enumerate(keypoints_sequence):
-            frame_path = os.path.join(sequence_path, f"{frame_idx}.npy")
-            np.save(frame_path, keypoints)
+        # Consolidate into one file
+        data = np.array(keypoints_sequence)
+        file_path = os.path.join(sequence_path, "keypoints.npy")
+        np.save(file_path, data)
         
         return True
     except Exception as e:
@@ -219,31 +212,37 @@ def save_sequence(label: str, sequence_idx: int, keypoints_sequence: List[np.nda
 
 def load_sequence(label: str, sequence_idx: int, sequence_length: int = 30) -> Optional[np.ndarray]:
     """
-    Load a sequence of keypoints.
-    
-    Args:
-        label: Label name
-        sequence_idx: Sequence index
-        sequence_length: Expected sequence length
-        
-    Returns:
-        Numpy array of shape (sequence_length, keypoints_per_frame) or None
+    Load a sequence of keypoints. Prioritizes the consolidated 'keypoints.npy'.
     """
     try:
         sequence_path = os.path.join(get_label_path(label), str(sequence_idx))
         if not os.path.exists(sequence_path):
             return None
         
+        # 1. Try modern consolidated file
+        fast_path = os.path.join(sequence_path, "keypoints.npy")
+        if os.path.exists(fast_path):
+            return np.load(fast_path)
+            
+        # 2. Backward compatibility: load frame-by-frame
         frames = []
+        found_any = False
         for frame_idx in range(sequence_length):
             frame_path = os.path.join(sequence_path, f"{frame_idx}.npy")
             if os.path.exists(frame_path):
                 frames.append(np.load(frame_path))
+                found_any = True
             else:
-                # Use zeros if frame doesn't exist
                 frames.append(np.zeros(63))
         
-        return np.array(frames)
+        if not found_any: return None
+        
+        # Auto-consolidate for future loads
+        arr = np.array(frames)
+        try: np.save(fast_path, arr)
+        except: pass
+        
+        return arr
     except Exception as e:
         print(f"Error loading sequence: {e}")
         return None

@@ -9,7 +9,9 @@ from utils.config import (
     SEQUENCE_LENGTH,
     PREDICTION_CONFIDENCE_THRESHOLD,
     PREDICTION_CONSISTENCY_FRAMES,
-    DEFAULT_MODEL_PATH
+    DEFAULT_MODEL_PATH,
+    DEFAULT_LABELS_PATH,
+    KEYPOINTS_PER_FRAME
 )
 from utils.logger import app_logger
 
@@ -28,32 +30,35 @@ class Predictor:
     
     def load_model(self, model_path: str = DEFAULT_MODEL_PATH, labels: List[str] = None) -> bool:
         """
-        Load trained model.
-        
-        Args:
-            model_path: Path to model file
-            labels: List of label names
-            
-        Returns:
-            True if successful, False otherwise
+        Load trained model and its corresponding labels.
         """
         try:
+            import os
             self.model = ModelBuilder.load_model(model_path)
             if self.model is None:
                 return False
             
-            if labels:
-                self.labels = labels
-                app_logger.info(f"Model loaded with {len(labels)} labels: {labels}")
+            # If labels aren't provided, try to find labels.txt near the model
+            if not labels:
+                labels_path = model_path.replace('.h5', '.txt') # Check model.txt
+                if not os.path.exists(labels_path):
+                    labels_path = DEFAULT_LABELS_PATH # Check default
+                
+                if os.path.exists(labels_path):
+                    with open(labels_path, 'r') as f:
+                        self.labels = [line.strip() for line in f if line.strip()]
+                    app_logger.info(f"Loaded {len(self.labels)} labels from file: {self.labels}")
+                else:
+                    app_logger.warning("No labels file found. Predictions will be numeric.")
             else:
-                app_logger.warning("No labels provided, predictions will be indices")
+                self.labels = labels
+                app_logger.info(f"Using provided {len(labels)} labels")
             
-            # Reset state
             self.reset()
             return True
             
         except Exception as e:
-            app_logger.error(f"Error loading model: {e}")
+            app_logger.error(f"Error loading model environment: {e}")
             return False
     
     def reset(self):
@@ -66,9 +71,6 @@ class Predictor:
     def add_keypoints(self, keypoints: np.ndarray):
         """
         Add keypoints to sequence buffer.
-        
-        Args:
-            keypoints: Keypoint array of shape (63,)
         """
         self.sequence.append(keypoints)
     
@@ -76,13 +78,6 @@ class Predictor:
                 threshold: float = PREDICTION_CONFIDENCE_THRESHOLD) -> Tuple[Optional[str], float]:
         """
         Make prediction on current sequence.
-        
-        Args:
-            keypoints: Current frame keypoints
-            threshold: Confidence threshold for predictions
-            
-        Returns:
-            Tuple of (predicted_label, confidence)
         """
         if self.model is None:
             return None, 0.0
@@ -90,14 +85,25 @@ class Predictor:
         # Add keypoints to sequence
         self.add_keypoints(keypoints)
         
-        # Need full sequence to predict
-        if len(self.sequence) < SEQUENCE_LENGTH:
+        # RESPONSIVENESS FIX: Start predicting after 10 frames (with zero padding)
+        # Instead of waiting for a full 30-frame buffer.
+        MIN_FRAMES_TO_PREDICT = 10
+        if len(self.sequence) < MIN_FRAMES_TO_PREDICT:
             return None, 0.0
         
         try:
-            # Prepare sequence for prediction
-            sequence_array = np.array(list(self.sequence))
-            sequence_input = np.expand_dims(sequence_array, axis=0)
+            # Prepare sequence for prediction (pad with zeros if buffer is not full)
+            sequence_list = list(self.sequence)
+            current_len = len(sequence_list)
+            
+            if current_len < SEQUENCE_LENGTH:
+                # Pad start with zeros to maintain model input shape (30, 63)
+                padding = [np.zeros(KEYPOINTS_PER_FRAME) for _ in range(SEQUENCE_LENGTH - current_len)]
+                input_data = np.array(padding + sequence_list)
+            else:
+                input_data = np.array(sequence_list)
+                
+            sequence_input = np.expand_dims(input_data, axis=0)
             
             # Make prediction
             prediction_probs = self.model.predict(sequence_input, verbose=0)[0]

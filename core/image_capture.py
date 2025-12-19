@@ -59,7 +59,10 @@ class ImageCapture:
             self.cap.release()
             self.cap = None
         if self.hands:
-            self.hands.close()
+            try:
+                self.hands.close()
+            except:
+                pass
             self.hands = None
         app_logger.info("Camera stopped")
     
