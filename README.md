@@ -17,32 +17,37 @@
 
 ## 🚀 Overview
 
-**SignBridge** is a complete refactor of the original project into a modular, object-oriented application with a modern graphical user interface (GUI). It streamlines the entire workflow of building a gesture recognition system into a single application.
+**SignBridge** is a complete, modular, object-oriented application with a modern graphical user interface (GUI). It streamlines the entire workflow of building a gesture recognition system—from raw image ingestion to real-time AI inference—into a single, high-performance application.
 
 ---
 
 ## ✨ Key Features
 
-### 1. 📸 Dataset Creator
+### 1. 📂 Optimized Dataset Browser & Sync
+- **Dynamic Dataset Selection**: Browse and select any dataset directory at runtime.
+- **30x Faster Loading**: Uses consolidated `keypoints.npy` storage to reduce disk I/O bottlenecks.
+- **🔄 Sync & Repair Tool**: 
+    - Automatically imports loose images (`.jpg`, `.png`) into the sequence structure.
+    - Generates missing landmark data using MediaPipe with a real-time progress bar.
+    - organizes external data folders for training readiness.
+
+### 2. 📸 Dataset Creator
 - **Live Camera Feed**: Preview your webcam stream in real-time.
-- **Dynamic Class Creation**: Add new gesture labels (e.g., "Hello", "Yes") on the fly.
+- **Dynamic Class Creation**: Add new gesture labels (e.g., "Hello", "Ok") on the fly.
 - **Automated Capture**: Capture consistent sequences of hand landmarks (30 frames per sequence).
-- **Progress Tracking**: Visual progress bar for data collection.
 
-### 2. 📁 Dataset Browser
-- **Visual Management**: View all captured labels and sequences.
-- **Easy Editing**: Rename labels or delete specific sequences with a click.
-- **Statistics**: View total dataset size and balance.
+### 3. 🎓 Professional Training Engine
+- **Robust Model Architecture**: 
+    - **Gaussian Noise**: Improved generalization for shaky hands.
+    - **Batch Normalization**: Faster convergence and stable training.
+    - **Class Weighting**: Automatically balances samples to prevent bias towards common labels (like "Ok").
+- **Real-Time Visualization**: Live accuracy and loss graphs.
+- **Validation Suite**: built-in dataset validator before training starts.
 
-### 3. 🎓 Integrated Training
-- **Customizable**: Set epochs, batch size, and learning rate from the GUI.
-- **Real-Time Visualization**: Watch live accuracy and loss graphs during training.
-- **Threaded Execution**: UI remains responsive while the model trains in the background.
-
-### 4. 🔮 Real-Time Prediction
-- **Live Recognition**: Instantly recognize trained gestures.
-- **Confidence Scoring**: See the model's confidence for every prediction.
-- **Threshold Control**: Adjust sensitivity with a slider.
+### 4. 🔮 High-Speed Real-Time Prediction
+- **Zero-Latency Inference**: Optimized temporal buffer for instant recognition.
+- **Adaptive Thresholding**: Adjust sensitivity and consistency frames on the fly.
+- **High-DPI Support**: Crisp visuals on 4K and Retina displays.
 
 ---
 
@@ -74,70 +79,71 @@
 
 ## 📖 Usage Guide
 
-### Step 1: Create a Dataset
-1. Go to the **Dataset Creator** tab.
-2. Enter a label name (e.g., "A").
-3. Click **Start Camera**.
-4. Position your hand and click **Start Capture**.
-5. The system will auto-capture 30 sequences. Move your hand slightly between sequences for better generalization.
-
-### Step 2: Inspection (Optional)
+### Step 1: Manage Your Data
 1. Go to the **Dataset Browser** tab.
-2. Verify that your labels and sequences are correct.
-3. Delete any bad data if necessary.
+2. Click **Browse Dataset** to select your working folder.
+3. If you have loose images in a folder, click **🔄 Sync & Repair**. The app will automatically generate the required landmark files and organize your data.
+
+### Step 2: Capture New Data (Optional)
+1. Go to the **Dataset Creator** tab.
+2. Enter a label name and click **Start Capture**.
+3. Move your hand slightly to give the model better variety.
 
 ### Step 3: Train the Model
 1. Go to the **Training** tab.
-2. Click **Validate Dataset** to ensure you have enough data.
-3. Click **Start Training**.
-4. Wait for the process to finish (accuracy usually reaches >95%).
+2. Adjust epochs (recommended: 50+) and batch size.
+3. Click **Start Training**. The model now uses **Class Weighting** to ensure rare gestures are learned as well as common ones.
 
 ### Step 4: Real-Time Prediction
 1. Go to the **Prediction** tab.
-2. Click **Load Model** (the system loads the newly trained model automatically).
-3. Click **Start Prediction**.
-4. Test your gestures!
+2. Click **Load Model** (automatically detects `labels.txt` and `model.h5`).
+3. Click **Start Prediction**. The system is now optimized to predict every 2nd frame for maximum smoothness.
 
 ---
 
 ## 🏗️ Project Structure
 
 ```
-Sign-Language-Recognition-System/
+SignBridge/
 │
 ├── main.py                  # Entry point
+├── create_exe.py            # PyInstaller build script
 ├── requirements.txt         # Dependencies
 │
-├── ui/                      # GUI Components
-│   ├── main_window.py       # Main container
+├── ui/                      # GUI Components (PyQt5)
+│   ├── browser_tab.py       # Dataset management & Sync logic
 │   ├── dataset_tab.py       # Data capture UI
-│   ├── train_tab.py         # Training UI
-│   └── predict_tab.py       # Prediction UI
+│   ├── train_tab.py         # Training UI & Graphing
+│   └── predict_tab.py       # Real-time inference UI
 │
 ├── core/                    # Logic Modules
-│   ├── image_capture.py     # MediaPipe handling
-│   ├── dataset_manager.py   # Data I/O
-│   ├── trainer.py           # Training loop
-│   └── predictor.py         # Inference engine
+│   ├── image_capture.py     # MediaPipe Hand Tracking
+│   ├── dataset_manager.py   # Multi-threaded Data Loading
+│   ├── trainer.py           # Keras training with Class Weighting
+│   └── predictor.py         # Temporal inference engine
 │
-├── dataset/                 # Data Storage
-│   ├── A/                   # Gesture Folders
-│   └── B/
-│
-├── model/                   # Model Storage
-│   └── model.h5             # Trained Model
-│
-└── utils/                   # Helpers
-    ├── config.py            # Settings
-    └── logger.py            # Logging
+├── utils/                   # Shared Utilities
+│   ├── file_ops.py          # Consolidated .npy operations
+│   ├── config.py            # Global settings & constants
+│   └── logger.py            # Application logging
 ```
+
+---
+
+## 📦 Building an Executable
+
+To create a standalone windows executable:
+```powershell
+python create_exe.py
+```
+The build will be located in the `dist/SignBridge` folder.
 
 ---
 
 ## ⚠️ Troubleshooting
 
-- **Camera not working?** Ensure no other app is using the webcam.
-- **Low accuracy?** Try capturing more data (50+ sequences per label) with varied lighting and hand positions.
-- **App freezes?** The app uses threading for heavy tasks, but initial model loading might take a few seconds.
+- **Model favoring one gesture?** Ensure your dataset is balanced, or use the new **Class Weighting** feature during training.
+- **Slow predictions?** Ensure your camera FPS matches the `utils/config.py` settings (default 30 FPS).
+- **Importing raw images?** Use the **Sync & Repair** button in the Browser tab to convert them to sequences.
 
 ---
